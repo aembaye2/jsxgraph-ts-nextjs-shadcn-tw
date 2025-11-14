@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download, ArrowRight } from "lucide-react";
+import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download, MoveUpRight } from "lucide-react";
 import html2canvas from "html2canvas";
 
 type DrawingMode = "point" | "segment" | "arrow" | "triangle" | "rectangle" | "circle" | null;
@@ -577,7 +577,7 @@ export default function DrawingBoard() {
           variant={mode === "arrow" ? "default" : "outline"}
           title="Draw Arrow"
         >
-          <ArrowRight className="h-4 w-4" />
+          <MoveUpRight className="h-4 w-4" />
         </Button>
         <Button
           onClick={() => setMode("rectangle")}
