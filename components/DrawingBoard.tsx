@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download, MoveUpRight } from "lucide-react";
+import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download, MoveUpRight, MoveDiagonal } from "lucide-react";
 import html2canvas from "html2canvas";
 
-type DrawingMode = "point" | "segment" | "arrow" | "triangle" | "rectangle" | "circle" | null;
+type DrawingMode = "point" | "segment" | "arrow" | "doubleArrow" | "triangle" | "rectangle" | "circle" | null;
 
 interface Point {
   x: number;
@@ -176,13 +176,34 @@ export default function DrawingBoard() {
           visible: false,
           fixed: true,
         });
-        // JSXGraph supports an 'arrow' element similar to segment
+        // single-direction arrow
         const arrow = board.create("arrow", [p1, p2], {
           strokeColor: "#3b82f6",
           strokeWidth: 2,
           fixed: true,
         });
         setCurrentShape({ arrow, p1, p2 });
+      } else if (mode === "doubleArrow") {
+        const p1 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
+          visible: false,
+          fixed: true,
+        });
+        const p2 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
+          visible: false,
+          fixed: true,
+        });
+        // create two arrows in opposite directions to show double-headed arrow
+        const double1 = board.create("arrow", [p1, p2], {
+          strokeColor: "#3b82f6",
+          strokeWidth: 2,
+          fixed: true,
+        });
+        const double2 = board.create("arrow", [p2, p1], {
+          strokeColor: "#3b82f6",
+          strokeWidth: 2,
+          fixed: true,
+        });
+        setCurrentShape({ double1, double2, p1, p2 });
       } else if (mode === "rectangle") {
         const p1 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
           visible: false,
@@ -274,6 +295,18 @@ export default function DrawingBoard() {
           currentX,
           currentY,
         ]);
+      } else if (mode === "doubleArrow") {
+        currentShape.p1.setPosition((window as any).JXG.COORDS_BY_USER, [
+          startPoint.x,
+          startPoint.y,
+        ]);
+        currentShape.p2.setPosition((window as any).JXG.COORDS_BY_USER, [
+          currentX,
+          currentY,
+        ]);
+        // both arrows reference same points (reverse order for the second arrow)
+        currentShape.double1.update && currentShape.double1.update();
+        currentShape.double2.update && currentShape.double2.update();
       } else if (mode === "rectangle") {
         const { points } = currentShape;
         points[0].setPosition((window as any).JXG.COORDS_BY_USER, [
@@ -339,6 +372,8 @@ export default function DrawingBoard() {
         shapeObjects.push(currentShape.segment, currentShape.p1, currentShape.p2);
       } else if (mode === "arrow") {
         shapeObjects.push(currentShape.arrow, currentShape.p1, currentShape.p2);
+      } else if (mode === "doubleArrow") {
+        shapeObjects.push(currentShape.double1, currentShape.double2, currentShape.p1, currentShape.p2);
       } else if (mode === "rectangle") {
         shapeObjects.push(currentShape.polygon, ...currentShape.points);
       } else if (mode === "circle") {
@@ -578,6 +613,13 @@ export default function DrawingBoard() {
           title="Draw Arrow"
         >
           <MoveUpRight className="h-4 w-4" />
+        </Button>
+        <Button
+          onClick={() => setMode("doubleArrow")}
+          variant={mode === "doubleArrow" ? "default" : "outline"}
+          title="Draw Double Arrow"
+        >
+          <MoveDiagonal className="h-4 w-4" />
         </Button>
         <Button
           onClick={() => setMode("rectangle")}
