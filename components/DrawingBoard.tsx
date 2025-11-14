@@ -600,13 +600,7 @@ export default function DrawingBoard() {
         >
           <Slash className="h-4 w-4" />
         </Button>
-        <Button
-          onClick={() => setMode("triangle")}
-          variant={mode === "triangle" ? "default" : "outline"}
-          title="Draw Triangle"
-        >
-          <Triangle className="h-4 w-4" />
-        </Button>
+
         <Button
           onClick={() => setMode("arrow")}
           variant={mode === "arrow" ? "default" : "outline"}
@@ -621,6 +615,14 @@ export default function DrawingBoard() {
         >
           <MoveDiagonal className="h-4 w-4" />
         </Button>
+        <Button
+          onClick={() => setMode("triangle")}
+          variant={mode === "triangle" ? "default" : "outline"}
+          title="Draw Triangle"
+        >
+          <Triangle className="h-4 w-4" />
+        </Button>
+        
         <Button
           onClick={() => setMode("rectangle")}
           variant={mode === "rectangle" ? "default" : "outline"}
