@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download } from "lucide-react";
+import { Slash, Square, Circle, Undo, Redo, Trash2, Dot, Triangle, Download, ArrowRight } from "lucide-react";
 import html2canvas from "html2canvas";
 
-type DrawingMode = "point" | "segment" | "triangle" | "rectangle" | "circle" | null;
+type DrawingMode = "point" | "segment" | "arrow" | "triangle" | "rectangle" | "circle" | null;
 
 interface Point {
   x: number;
@@ -167,6 +167,22 @@ export default function DrawingBoard() {
           fixed: true,
         });
         setCurrentShape({ segment, p1, p2 });
+      } else if (mode === "arrow") {
+        const p1 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
+          visible: false,
+          fixed: true,
+        });
+        const p2 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
+          visible: false,
+          fixed: true,
+        });
+        // JSXGraph supports an 'arrow' element similar to segment
+        const arrow = board.create("arrow", [p1, p2], {
+          strokeColor: "#3b82f6",
+          strokeWidth: 2,
+          fixed: true,
+        });
+        setCurrentShape({ arrow, p1, p2 });
       } else if (mode === "rectangle") {
         const p1 = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
           visible: false,
@@ -249,6 +265,15 @@ export default function DrawingBoard() {
           currentX,
           currentY,
         ]);
+      } else if (mode === "arrow") {
+        currentShape.p1.setPosition((window as any).JXG.COORDS_BY_USER, [
+          startPoint.x,
+          startPoint.y,
+        ]);
+        currentShape.p2.setPosition((window as any).JXG.COORDS_BY_USER, [
+          currentX,
+          currentY,
+        ]);
       } else if (mode === "rectangle") {
         const { points } = currentShape;
         points[0].setPosition((window as any).JXG.COORDS_BY_USER, [
@@ -312,6 +337,8 @@ export default function DrawingBoard() {
         shapeObjects.push(currentShape);
       } else if (mode === "segment") {
         shapeObjects.push(currentShape.segment, currentShape.p1, currentShape.p2);
+      } else if (mode === "arrow") {
+        shapeObjects.push(currentShape.arrow, currentShape.p1, currentShape.p2);
       } else if (mode === "rectangle") {
         shapeObjects.push(currentShape.polygon, ...currentShape.points);
       } else if (mode === "circle") {
@@ -458,31 +485,68 @@ export default function DrawingBoard() {
     setVersion((v) => v + 1);
   };
 
-  // Export the JSXGraph drawing to PNG using html2canvas
-  const downloadPNG = async () => {
-    if (!boardRef.current) return;
+  //// Export the JSXGraph drawing to PNG using html2canvas
+    const downloadPNG = async () => {
+  if (!board) return;
 
-    try {
-      const canvas = await html2canvas(boardRef.current, {
-        backgroundColor: "#ffffff",
-        scale: window.devicePixelRatio || 1,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-      });
-
-      const png = canvas.toDataURL("image/png");
-      const a = document.createElement("a");
+  try {
+    const svgElement = board.containerObj.querySelector('svg');
+    if (!svgElement) throw new Error('SVG element not found');
+    
+    // Clone the SVG to avoid modifying the original
+    const svgClone = svgElement.cloneNode(true) as SVGElement;
+    
+    // Get SVG dimensions
+    const bbox = svgElement.getBoundingClientRect();
+    const width = bbox.width;
+    const height = bbox.height;
+    
+    // Set explicit dimensions on the clone
+    svgClone.setAttribute('width', width.toString());
+    svgClone.setAttribute('height', height.toString());
+    
+    const svgString = new XMLSerializer().serializeToString(svgClone);
+    const svgBase64 = btoa(unescape(encodeURIComponent(svgString)));
+    const dataUrl = `data:image/svg+xml;base64,${svgBase64}`;
+    
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = width * 2; // 2x for better quality
+    canvas.height = height * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    
+    // Scale for better quality
+    ctx.scale(2, 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, width, height);
+      const png = canvas.toDataURL('image/png');
+      
+      const a = document.createElement('a');
       a.href = png;
-      a.download = "drawing.png";
+      a.download = 'drawing.png';
       document.body.appendChild(a);
       a.click();
-      a.remove();
-    } catch (err) {
-      console.error(err);
-      alert("Failed to export drawing as PNG");
-    }
-  };
+      
+      setTimeout(() => {
+        a.remove();
+      }, 100);
+    };
+    
+    img.onerror = () => {
+      throw new Error('Failed to load SVG image');
+    };
+    
+    img.src = dataUrl;
+  } catch (err) {
+    console.error(err);
+    alert('Failed to export drawing as PNG');
+  }
+};
 
   return (
     <div className="flex flex-col items-center gap-4 p-8">
@@ -502,6 +566,20 @@ export default function DrawingBoard() {
           <Slash className="h-4 w-4" />
         </Button>
         <Button
+          onClick={() => setMode("triangle")}
+          variant={mode === "triangle" ? "default" : "outline"}
+          title="Draw Triangle"
+        >
+          <Triangle className="h-4 w-4" />
+        </Button>
+        <Button
+          onClick={() => setMode("arrow")}
+          variant={mode === "arrow" ? "default" : "outline"}
+          title="Draw Arrow"
+        >
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+        <Button
           onClick={() => setMode("rectangle")}
           variant={mode === "rectangle" ? "default" : "outline"}
           title="Draw Rectangle"
@@ -514,15 +592,7 @@ export default function DrawingBoard() {
           title="Draw Circle"
         >
           <Circle className="h-4 w-4" />
-        </Button>
-        <Button
-          onClick={() => setMode("triangle")}
-          variant={mode === "triangle" ? "default" : "outline"}
-          title="Draw Triangle"
-        >
-          <Triangle className="h-4 w-4" />
-        </Button>
-        
+        </Button>        
         <Button 
           onClick={undo} 
           variant="outline"
@@ -559,7 +629,7 @@ export default function DrawingBoard() {
         id="jxgbox"
         ref={boardRef}
         className="border-2 border-gray-300 rounded-lg shadow-lg"
-        style={{ width: "800px", height: "600px" }}
+        style={{ width: "600px", height: "500px" }}
       />
     </div>
   );
