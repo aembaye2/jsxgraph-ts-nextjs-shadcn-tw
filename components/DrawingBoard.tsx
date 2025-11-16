@@ -20,12 +20,63 @@ export default function DrawingBoard() {
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentShape, setCurrentShape] = useState<any>(null);
   const curvePointsRef = useRef<any[]>([]);
+  const trianglePointsRef = useRef<Point[]>([]);
+  const trianglePreviewRef = useRef<any>(null);
+  const triangleDrawingRef = useRef<boolean>(false);
   
   const undoStackRef = useRef<any[][]>([]);
   const redoStackRef = useRef<any[][]>([]);
   const [version, setVersion] = useState(0);
   const JSXGraphRef = useRef<any>(null);
   const boundingBox: [number, number, number, number] = [-1, 11, 11, -1];
+
+  // Cleanup function when changing modes
+  const cleanupCurrentMode = () => {
+    if (mode === "triangle" && board) {
+      // Clean up triangle preview objects
+      if (trianglePreviewRef.current) {
+        const { previewTriangle, p1, p2, p3 } = trianglePreviewRef.current;
+        try {
+          if (previewTriangle) board.removeObject(previewTriangle);
+          if (p1) board.removeObject(p1);
+          if (p2) board.removeObject(p2);
+          if (p3) board.removeObject(p3);
+        } catch (e) {
+          // Ignore errors if objects already removed
+        }
+        trianglePreviewRef.current = null;
+      }
+      
+      if (currentShape?.startCircle) {
+        try {
+          board.removeObject(currentShape.startCircle);
+        } catch (e) {
+          // Ignore
+        }
+      }
+      
+      if (currentShape?.previewLine) {
+        try {
+          board.removeObject(currentShape.previewLine);
+          // Also remove the points of the preview line
+          if (currentShape.previewLine.point1) board.removeObject(currentShape.previewLine.point1);
+          if (currentShape.previewLine.point2) board.removeObject(currentShape.previewLine.point2);
+        } catch (e) {
+          // Ignore
+        }
+      }
+      
+      trianglePointsRef.current = [];
+    }
+    
+    if (mode === "curve") {
+      curvePointsRef.current = [];
+    }
+    
+    setCurrentShape(null);
+    setIsDrawing(false);
+    setStartPoint(null);
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined" && boardRef.current) {
@@ -112,13 +163,18 @@ export default function DrawingBoard() {
       const coords = getMouseCoords(e);
       if (!coords) return;
 
-      setIsDrawing(true);
+      // For triangle mode, only set isDrawing if not finalizing (third click)
+      const isTriangleThirdClick = mode === "triangle" && trianglePointsRef.current.length === 2;
+      
+      if (!isTriangleThirdClick) {
+        setIsDrawing(true);
+      }
+      
       setStartPoint({
         x: coords.usrCoords[1],
         y: coords.usrCoords[2],
       });
 
-      // Create initial shape
       if (mode === "point") {
         const point = board.create("point", [coords.usrCoords[1], coords.usrCoords[2]], {
           size: 4,
@@ -128,52 +184,77 @@ export default function DrawingBoard() {
           fixed: true,
         });
         setCurrentShape(point);
-      } else if (mode === "triangle") {
-    // 1. Define the first fixed point (p1) at the mousedown location.
-    const x = coords.usrCoords[1];
-    const y = coords.usrCoords[2];
-    
-    // p1: The first vertex, set at the mousedown location
-    const p1 = board.create("point", [x, y], {
-      visible: false, // Keep hidden unless you want to show vertices
-      fixed: true,
-    });
+        return;
+      }
 
-    // p2: The second vertex, initially also at the mousedown location, 
-    // but will move with the mouse during the drag (mousemove) event.
-    const p2 = board.create("point", [x, y], {
-      visible: false, 
-      fixed: true,
-    });
-    
-    // p3: The third vertex. For drag-based drawing, this is often
-    // an 'anchor' point (or the initial drag point is p1, and the
-    // shape updates based on p2's position). For a basic
-    // "bounding box" triangle, p3 and p2 might be calculated from p1.
-    // For simplicity in a 3-click mode, initialize it the same.
-    // In a 2-point drag mode (e.g., to draw a right triangle or use p1 and p2 as a base), 
-    // you need a strategy for p3.
-    // For a simple polygon, all initial points are the same. The logic
-    // needs to be in the mousemove and mouseup handlers.
-    const p3 = board.create("point", [x, y], {
-      visible: false, 
-      fixed: true,
-    });
-    
-    // Create the triangle polygon from the three points
-    const triangle = board.create("polygon", [p1, p2, p3], {
-      fillColor: "#fbbf24",
-      fillOpacity: 0.2,
-      borders: {
-        strokeColor: "#f59e0b",
-        strokeWidth: 2,
-      },
-      fixed: true,
-    });
-    
-    // currentPointIndex should be 1 if p2 is the point to be updated 
-    // during mousemove/drag.
-    setCurrentShape({ triangle, points: [p1, p2, p3], currentPointIndex: 1 });
+      else if (mode === "triangle") {
+        const x = coords.usrCoords[1];
+        const y = coords.usrCoords[2];
+        const points = trianglePointsRef.current;
+
+        // First click: add first vertex and preview segment to cursor
+        if (points.length === 0) {
+          points.push({ x, y });
+          const startCircle = board.create("point", [x, y], {
+            size: 3,
+            fillColor: "#f59e0b",
+            strokeColor: "#f59e0b",
+            fixed: true,
+            name: '',
+          });
+
+          const previewP1 = board.create("point", [x, y], { visible: false, fixed: true });
+          const previewP2 = board.create("point", [x, y], { visible: false, fixed: true });
+          const previewLine = board.create("segment", [previewP1, previewP2], {
+            strokeColor: "#f59e0b",
+            strokeWidth: 2,
+            fixed: true,
+          });
+
+          setCurrentShape({ startCircle, previewLine });
+          triangleDrawingRef.current = true;
+          setIsDrawing(true);
+          return;
+        }
+
+        // Second click: add second vertex and start preview triangle
+        if (points.length === 1) {
+          points.push({ x, y });
+
+          if (currentShape?.previewLine) {
+            try {
+              if (currentShape.previewLine.point1) board.removeObject(currentShape.previewLine.point1);
+              if (currentShape.previewLine.point2) board.removeObject(currentShape.previewLine.point2);
+              board.removeObject(currentShape.previewLine);
+            } catch (err) {
+              // ignore
+            }
+          }
+
+          const p1 = board.create("point", [points[0].x, points[0].y], { visible: false, fixed: true });
+          const p2 = board.create("point", [points[1].x, points[1].y], { visible: false, fixed: true });
+          const p3 = board.create("point", [x, y], { visible: false, fixed: true });
+          const previewTriangle = board.create("polygon", [p1, p2, p3], {
+            fillColor: "#fbbf24",
+            fillOpacity: 0.2,
+            borders: {
+              strokeColor: "#f59e0b",
+              strokeWidth: 2,
+            },
+            fixed: true,
+          });
+
+          trianglePreviewRef.current = { previewTriangle, p1, p2, p3 };
+          setCurrentShape({ ...currentShape, previewTriangle, p3 });
+          triangleDrawingRef.current = true;
+          setIsDrawing(true);
+          return;
+        }
+
+        // If already have two points, ignore single click — we'll finalize on dblclick.
+        if (points.length >= 2) {
+          return;
+        }
       } else if (mode === "curve") {
         // Start or continue collecting points for a Catmull-Rom spline curve.
         const x = coords.usrCoords[1];
@@ -304,19 +385,32 @@ export default function DrawingBoard() {
       board.suspendUpdate();
 
       if (mode === "triangle") {
-        const { points, currentPointIndex } = currentShape;
-        if (currentPointIndex === 1) {
-          // Setting second point
-          points[1].setPosition((window as any).JXG.COORDS_BY_USER, [
-            currentX,
-            currentY,
-          ]);
-        } else if (currentPointIndex === 2) {
-          // Setting third point
-          points[2].setPosition((window as any).JXG.COORDS_BY_USER, [
-            currentX,
-            currentY,
-          ]);
+        // Use triangleDrawingRef to synchronously allow/disable preview updates
+        if (!triangleDrawingRef.current) {
+          board.unsuspendUpdate();
+          return;
+        }
+
+        const points = trianglePointsRef.current;
+
+        // If we have one point, update preview line from first point to cursor
+        if (points.length === 1 && currentShape?.previewLine) {
+          // Update the second point of the preview line to follow cursor
+          try {
+            currentShape.previewLine.point2.setPosition((window as any).JXG.COORDS_BY_USER, [currentX, currentY]);
+          } catch (err) {
+            // ignore if previewLine was removed
+          }
+        }
+
+        // If we have two points, update preview triangle's third point to follow cursor
+        // This will update both the second and third sides of the triangle
+        if (points.length === 2 && trianglePreviewRef.current?.p3) {
+          try {
+            trianglePreviewRef.current.p3.setPosition((window as any).JXG.COORDS_BY_USER, [currentX, currentY]);
+          } catch (err) {
+            // ignore if preview points were removed
+          }
         }
       } else if (mode === "segment") {
         currentShape.p1.setPosition((window as any).JXG.COORDS_BY_USER, [
@@ -389,24 +483,7 @@ export default function DrawingBoard() {
       if (!isDrawing || !currentShape) return;
 
       if (mode === "triangle") {
-        const { points, currentPointIndex } = currentShape;
-
-        if (currentPointIndex < 3) {
-          // advance to next point
-          setCurrentShape({ ...currentShape, currentPointIndex: currentPointIndex + 1 });
-          setStartPoint({ x: coords.usrCoords[1], y: coords.usrCoords[2] });
-          return;
-        }
-
-        // Triangle complete - push to undo stack
-        const shapeObjects: any[] = [currentShape.triangle, ...currentShape.points];
-        undoStackRef.current.push(shapeObjects);
-        redoStackRef.current = [];
-        setVersion((v) => v + 1);
-
-        setIsDrawing(false);
-        setCurrentShape(null);
-        setStartPoint(null);
+        // Triangle is handled entirely in mousedown with click-based approach
         return;
       }
 
@@ -486,18 +563,127 @@ export default function DrawingBoard() {
       setStartPoint(null);
     };
 
+    const handleDoubleClick = (e: MouseEvent) => {
+      if (!board) return;
+      if (mode !== "triangle") return;
+      const coords = getMouseCoords(e);
+      if (!coords) return;
+
+      const points = trianglePointsRef.current;
+      if (points.length !== 2) return;
+
+      const x = coords.usrCoords[1];
+      const y = coords.usrCoords[2];
+
+      // Finalize triangle on double click
+      points.push({ x, y });
+      triangleDrawingRef.current = false;
+      setIsDrawing(false);
+      const cs = currentShape;
+      setCurrentShape(null);
+
+      // Remove preview objects
+      if (trianglePreviewRef.current) {
+        const { previewTriangle, p1, p2, p3 } = trianglePreviewRef.current;
+        try {
+          if (previewTriangle) board.removeObject(previewTriangle);
+          if (p1) board.removeObject(p1);
+          if (p2) board.removeObject(p2);
+          if (p3) board.removeObject(p3);
+        } catch (err) {}
+      }
+
+      if (cs?.startCircle) {
+        try {
+          board.removeObject(cs.startCircle);
+        } catch (err) {}
+      }
+
+      // Create final triangle using coordinate arrays (not linked to preview points)
+      const finalTriangle = board.create("polygon", [
+        [points[0].x, points[0].y],
+        [points[1].x, points[1].y],
+        [points[2].x, points[2].y],
+      ], {
+        fillColor: "#fbbf24",
+        fillOpacity: 0.2,
+        borders: {
+          strokeColor: "#f59e0b",
+          strokeWidth: 2,
+        },
+        fixed: true,
+      });
+
+      // Add to undo stack
+      undoStackRef.current.push([finalTriangle]);
+      redoStackRef.current = [];
+      setVersion((v) => v + 1);
+
+      // Update board and reset state
+      try {
+        finalTriangle.setAttribute({ fixed: true });
+        finalTriangle.update && finalTriangle.update();
+        board.update && board.update();
+      } catch (err) {}
+
+      trianglePointsRef.current = [];
+      trianglePreviewRef.current = null;
+      triangleDrawingRef.current = false;
+      setCurrentShape(null);
+      setStartPoint(null);
+    };
+
     const boardElement = boardRef.current;
     if (boardElement) {
       boardElement.addEventListener("mousedown", handleMouseDown);
       boardElement.addEventListener("mousemove", handleMouseMove);
       boardElement.addEventListener("mouseup", handleMouseUp);
+      boardElement.addEventListener("dblclick", handleDoubleClick as any);
       boardElement.addEventListener("mouseleave", handleMouseUp);
+
+      // Escape key handler to cancel triangle drawing
+      const handleKeyDown = (ev: KeyboardEvent) => {
+        if (ev.key === "Escape" && mode === "triangle" && triangleDrawingRef.current && board) {
+          // Remove any preview objects and reset state
+          try {
+            // remove preview triangle
+            if (trianglePreviewRef.current) {
+              const { previewTriangle, p1, p2, p3 } = trianglePreviewRef.current;
+              if (previewTriangle) board.removeObject(previewTriangle);
+              if (p1) board.removeObject(p1);
+              if (p2) board.removeObject(p2);
+              if (p3) board.removeObject(p3);
+            }
+            // remove preview line points
+            if (currentShape?.previewLine) {
+              try {
+                if (currentShape.previewLine.point1) board.removeObject(currentShape.previewLine.point1);
+                if (currentShape.previewLine.point2) board.removeObject(currentShape.previewLine.point2);
+                board.removeObject(currentShape.previewLine);
+              } catch (err) {}
+            }
+            if (currentShape?.startCircle) {
+              try { board.removeObject(currentShape.startCircle); } catch (err) {}
+            }
+          } catch (err) {}
+
+          trianglePointsRef.current = [];
+          trianglePreviewRef.current = null;
+          triangleDrawingRef.current = false;
+          setCurrentShape(null);
+          setIsDrawing(false);
+          setStartPoint(null);
+        }
+      };
+      document.addEventListener("keydown", handleKeyDown);
 
       return () => {
         boardElement.removeEventListener("mousedown", handleMouseDown);
         boardElement.removeEventListener("mousemove", handleMouseMove);
         boardElement.removeEventListener("mouseup", handleMouseUp);
+        boardElement.removeEventListener("dblclick", handleDoubleClick as any);
         boardElement.removeEventListener("mouseleave", handleMouseUp);
+        document.removeEventListener("keydown", handleKeyDown);
       };
     }
   }, [board, mode, isDrawing, currentShape, startPoint]);
@@ -780,18 +966,23 @@ export default function DrawingBoard() {
     }
   };
 
+  const handleModeChange = (newMode: DrawingMode) => {
+    cleanupCurrentMode();
+    setMode(newMode);
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 p-8">
       <div className="flex items-center gap-1 flex-nowrap">
         <Button
-          onClick={() => setMode("point")}
+          onClick={() => handleModeChange("point")}
           variant={mode === "point" ? "default" : "outline"}
           title="Draw Point"
         >
           <Dot className="h-4 w-4" />
         </Button>
         <Button
-          onClick={() => setMode("segment")}
+          onClick={() => handleModeChange("segment")}
           variant={mode === "segment" ? "default" : "outline"}
           title="Draw Segment"
         >
@@ -799,28 +990,29 @@ export default function DrawingBoard() {
         </Button>
 
         <Button
-          onClick={() => setMode("arrow")}
+          onClick={() => handleModeChange("arrow")}
           variant={mode === "arrow" ? "default" : "outline"}
           title="Draw Arrow"
         >
           <MoveUpRight className="h-4 w-4" />
         </Button>
         <Button
-          onClick={() => setMode("doubleArrow")}
+          onClick={() => handleModeChange("doubleArrow")}
           variant={mode === "doubleArrow" ? "default" : "outline"}
           title="Draw Double Arrow"
         >
           <MoveDiagonal className="h-4 w-4" />
         </Button>
         <Button
-          onClick={() => setMode("triangle")}
+          onClick={() => handleModeChange("triangle")}
           variant={mode === "triangle" ? "default" : "outline"}
           title="Draw Triangle"
         >
           <Triangle className="h-4 w-4" />
         </Button>
+        {/* Preview points toggle removed to avoid duplicating point tool in toolbar */}
         <Button
-          onClick={() => setMode("curve")}
+          onClick={() => handleModeChange("curve")}
           variant={mode === "curve" ? "default" : "outline"}
           title="Draw Curve"
         >
@@ -828,14 +1020,14 @@ export default function DrawingBoard() {
         </Button>
         
         <Button
-          onClick={() => setMode("rectangle")}
+          onClick={() => handleModeChange("rectangle")}
           variant={mode === "rectangle" ? "default" : "outline"}
           title="Draw Rectangle"
         >
           <Square className="h-4 w-4" />
         </Button>
         <Button
-          onClick={() => setMode("circle")}
+          onClick={() => handleModeChange("circle")}
           variant={mode === "circle" ? "default" : "outline"}
           title="Draw Circle"
         >

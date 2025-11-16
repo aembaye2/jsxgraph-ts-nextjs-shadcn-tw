@@ -1,3 +1,15 @@
+# 
+git add .
+
+git commit -m "committed on 11/15/2025"
+
+git fetch origin
+
+git push -u origin main
+
+
+
+
 # JSXGraph Drawing App
 
 A Next.js application with TypeScript, Tailwind CSS, shadcn UI, and JSXGraph for interactive geometric drawing.
